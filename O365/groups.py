@@ -64,30 +64,41 @@ class Group(ApiComponent):
     def __hash__(self):
         return self.object_id.__hash__()
 
-    def get_group_members(self, recursive=False):
+    def get_group_members(self, limit=100, recursive=False):
         """ Returns members of given group
         :param bool recursive: drill down to users if group has other group as a member
         :rtype: list[User]
         """
         if recursive:
-            recursive_data = self._get_group_members_raw()
+            recursive_data = self._get_group_members_raw(limit)
             for member in recursive_data:
                 if member['@odata.type'] == '#microsoft.graph.group':
-                    recursive_members = Groups(con=self.con, protocol=self.protocol).get_group_by_id(member['id'])._get_group_members_raw()
+                    recursive_members = Groups(con=self.con, protocol=self.protocol).get_group_by_id(member['id'])._get_group_members_raw(limit)
                     recursive_data.extend(recursive_members)
             return [self.member_constructor(parent=self, **{self._cloud_data_key: lst}) for lst in recursive_data]
         else:
-            return [self.member_constructor(parent=self, **{self._cloud_data_key: lst}) for lst in self._get_group_members_raw()]
+            return [self.member_constructor(parent=self, **{self._cloud_data_key: lst}) for lst in self._get_group_members_raw(limit)]
 
-    def _get_group_members_raw(self):
+    def _get_group_members_raw(self, limit):
+        left = limit
+
+        members = list()
         url = self.build_url(self._endpoints.get('get_group_members').format(group_id=self.object_id))
+        while True:
+            response = self.con.get(url)
+            if not response:
+                members
 
-        response = self.con.get(url)
-        if not response:
-            return []
+            data = response.json()
+            batch = data.get('value', [])
+            members.extend(batch)
+            left -= len(batch)
 
-        data = response.json()
-        return data.get('value', [])
+            url = data.get('@odata.nextLink')
+            if url is None or left <= 0:
+                break
+
+        return members
 
     def get_group_owners(self):
         """ Returns owners of given group
